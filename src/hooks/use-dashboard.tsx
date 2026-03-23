@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { API_URL, SalesRecord, normalizeRow } from '@/lib/data-utils';
 
