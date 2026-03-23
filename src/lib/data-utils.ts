@@ -1,6 +1,6 @@
-// Google Sheets published CSV export URL (Master_Qcom_Sales_data tab)
-const SHEET_ID = '2PACX-1vTfh4HeBsX_YgPhB-uSiw_H70nyfC4YZrK2kwvO76Vacg7RejixntnYKRkKPsIEq8ff02zq16lXD7XD';
-const SALES_GID  = '637248182';
+// Google Sheets published CSV export (new sheet)
+const SHEET_ID = '2PACX-1vQ0ey_-9cl1Gyc8VZM5-fEbvmQmFzGFqD9PJPD8XchMe6FVrg_hZMoDTnvPGtGsTpbz4Ku_C1hm22MO';
+const SALES_GID  = '0';
 const SPENDS_GID = '429145227';
 
 export const SALES_CSV_URL  = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SALES_GID}&single=true&output=csv`;
@@ -11,21 +11,15 @@ export function parseCSV(csvText: string): RawRow[] {
   const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== '');
   if (lines.length < 2) return [];
 
-  // Basic CSV splitter that handles quoted commas
   const splitLine = (line: string): string[] => {
     const cols: string[] = [];
     let cur = '';
     let inQuote = false;
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
-      if (ch === '"') {
-        inQuote = !inQuote;
-      } else if (ch === ',' && !inQuote) {
-        cols.push(cur.trim());
-        cur = '';
-      } else {
-        cur += ch;
-      }
+      if (ch === '"') { inQuote = !inQuote; }
+      else if (ch === ',' && !inQuote) { cols.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
     }
     cols.push(cur.trim());
     return cols;
@@ -48,6 +42,7 @@ export interface SalesRecord {
   date: string;
   platform: string;
   category: string;
+  subcategory: string;
   city: string;
   brand: string;
   product: string;
@@ -62,37 +57,57 @@ export interface SalesRecord {
 const num = (v: any) => parseFloat(String(v).replace(/[₹,%\s]/g,'')) || 0;
 
 export function normalizeRow(r: RawRow): SalesRecord {
-  const g = (k: string) => String(r[k] ?? r[k.toLowerCase()] ?? r[k.toUpperCase()] ?? '');
-  
-  const rev = num(g('Revenue') || g('revenue') || g('Sales'));
-  const spend = num(g('Ad Spend') || g('AdSpend') || g('ad_spend') || 0);
-  
+  // Case-insensitive key lookup
+  const keys = Object.keys(r);
+  const find = (...candidates: string[]) => {
+    for (const c of candidates) {
+      const found = keys.find(k => k.trim().toLowerCase() === c.toLowerCase());
+      if (found && String(r[found]).trim()) return String(r[found]).trim();
+    }
+    return '';
+  };
+
+  const rev   = num(find('Revenue', 'revenue', 'Sales', 'Ordered Product Sales'));
+  const spend = num(find('Ad Spend', 'AdSpend', 'ad_spend', 'Spends', 'Total Spends'));
+
   return {
-    date:     g('Date') || g('date') || new Date().toISOString().slice(0, 10),
-    platform: g('Platform') || g('platform') || 'Unknown',
-    category: g('Category') || g('category') || 'Unknown',
-    city:     g('City') || g('city') || 'Unknown',
-    brand:    g('Brand') || g('brand') || 'Unknown',
-    product:  g('Product') || g('product') || 'Unknown',
-    units:    num(g('Units') || g('units') || g('Units Sold')),
-    revenue:  rev,
-    adSpend:  spend,
-    adSales:  num(g('Ad Sales') || g('AdSales') || g('ad_sales') || 0),
-    tacos:    num(g('TACOS') || g('tacos')) || (rev > 0 ? (spend / rev) * 100 : 0),
-    adROI:    num(g('Ad ROI') || g('ROI') || g('roi')) || (spend > 0 ? num(g('Ad Sales')) / spend : 0),
+    date:        find('Date', 'date', 'Order Date', 'Week') || new Date().toISOString().slice(0,10),
+    platform:    find('Platform', 'platform', 'Channel') || 'Unknown',
+    category:    find('Category', 'category', 'Product Category') || 'Unknown',
+    subcategory: find('Sub Category', 'Subcategory', 'subcategory', 'Sub-Category', 'SubCategory') || 'Unknown',
+    city:        find('City', 'city', 'Region', 'Location') || 'Unknown',
+    brand:       find('Brand', 'brand', 'Brand Name') || 'Unknown',
+    product:     find('Product', 'product', 'Product Name', 'ASIN', 'SKU', 'Item') || 'Unknown',
+    units:       num(find('Units', 'units', 'Units Sold', 'Qty', 'Quantity')),
+    revenue:     rev,
+    adSpend:     spend,
+    adSales:     num(find('Ad Sales', 'AdSales', 'ad_sales', 'Attributed Sales')),
+    tacos:       num(find('TACOS', 'tacos', 'TACoS')) || (rev > 0 ? (spend / rev) * 100 : 0),
+    adROI:       num(find('Ad ROI', 'ROI', 'roi', 'ROAS')) || (spend > 0 ? num(find('Ad Sales', 'AdSales')) / spend : 0),
   };
 }
 
-export const formatMoney = (v: number) => {
-  if (v >= 100000) return '₹' + (v / 100000).toFixed(2) + 'L';
-  if (v >= 1000) return '₹' + (v / 1000).toFixed(2) + 'K';
+/**
+ * Format money values:
+ * >= 1 Crore (1,00,00,000) → X.XXCr
+ * >= 1 Lakh (1,00,000)      → X.XXL
+ * >= 1 Thousand (1,000)     → X.XXK
+ * else                      → ₹X
+ */
+export const formatMoney = (v: number): string => {
+  if (v >= 1_00_00_000) return '₹' + (v / 1_00_00_000).toFixed(2) + 'Cr';
+  if (v >= 1_00_000)    return '₹' + (v / 1_00_000).toFixed(2) + 'L';
+  if (v >= 1_000)       return '₹' + (v / 1_000).toFixed(2) + 'K';
   return '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 };
-export const formatNum = (v: number) => {
-  if (v >= 100000) return (v / 100000).toFixed(2) + 'L';
-  if (v >= 1000) return (v / 1000).toFixed(2) + 'K';
+
+export const formatNum = (v: number): string => {
+  if (v >= 1_00_00_000) return (v / 1_00_00_000).toFixed(2) + 'Cr';
+  if (v >= 1_00_000)    return (v / 1_00_000).toFixed(2) + 'L';
+  if (v >= 1_000)       return (v / 1_000).toFixed(2) + 'K';
   return v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
-}
+};
+
 export const formatPct = (v: number) => v.toFixed(1) + '%';
 
 export function groupBy(data: SalesRecord[], key: keyof SalesRecord, valueKey: keyof SalesRecord = 'revenue') {
@@ -107,13 +122,11 @@ export function groupBy(data: SalesRecord[], key: keyof SalesRecord, valueKey: k
 export function groupByDate(data: SalesRecord[], valueKeys: (keyof SalesRecord)[]) {
   const map: Record<string, any> = {};
   data.forEach(r => {
-    if(!map[r.date]) {
+    if (!map[r.date]) {
       map[r.date] = { date: r.date };
       valueKeys.forEach(vk => map[r.date][vk] = 0);
     }
-    valueKeys.forEach(vk => {
-      map[r.date][vk] += (r[vk] as number);
-    });
+    valueKeys.forEach(vk => { map[r.date][vk] += (r[vk] as number); });
   });
   return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
 }

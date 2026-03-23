@@ -1,19 +1,23 @@
 import { useState, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { SALES_CSV_URL, SPENDS_CSV_URL, SalesRecord, normalizeRow, parseCSV } from '@/lib/data-utils';
+import { SALES_CSV_URL, SalesRecord, normalizeRow, parseCSV } from '@/lib/data-utils';
 
-interface Filters {
-  platform: string;
-  category: string;
-  city: string;
+export interface Filters {
+  platforms: string[];
+  categories: string[];
+  subcategories: string[];
+  brands: string[];
+  products: string[];
   dateFrom: string;
   dateTo: string;
 }
 
 const DEFAULT_FILTERS: Filters = {
-  platform: '',
-  category: '',
-  city: '',
+  platforms: [],
+  categories: [],
+  subcategories: [],
+  brands: [],
+  products: [],
   dateFrom: '',
   dateTo: '',
 };
@@ -21,72 +25,115 @@ const DEFAULT_FILTERS: Filters = {
 export function useDashboardData() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
 
-  // Fetch from Google Sheets using React Query
+  // Fetch from Google Sheets CSV (Sales tab only)
   const { data: rawData = [], isLoading, isError, error } = useQuery({
     queryKey: ['sheetData'],
     queryFn: async () => {
-      const [salesRes, spendsRes] = await Promise.all([
-        fetch(SALES_CSV_URL),
-        fetch(SPENDS_CSV_URL),
-      ]);
-      if (!salesRes.ok) throw new Error('Failed to fetch sales data from Google Sheets');
-
-      const salesCsv = await salesRes.text();
-      const salesRows = parseCSV(salesCsv);
-
-      // Merge spends data if available
-      let allRows = salesRows;
-      if (spendsRes.ok) {
-        const spendsCsv = await spendsRes.text();
-        const spendsRows = parseCSV(spendsCsv);
-        // Append spends rows (normalizeRow handles missing fields gracefully)
-        allRows = [...salesRows, ...spendsRows];
-      }
-
-      return allRows.map(normalizeRow) as SalesRecord[];
+      const res = await fetch(SALES_CSV_URL);
+      if (!res.ok) throw new Error('Failed to fetch sales data from Google Sheets');
+      const csv = await res.text();
+      return parseCSV(csv).map(normalizeRow) as SalesRecord[];
     },
-    staleTime: 5 * 60 * 1000, // 5 minutes fresh
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Extract unique options for dropdowns
-  const categories = Array.from(new Set(rawData.map((r) => r.category))).sort();
-  const cities = Array.from(new Set(rawData.map((r) => r.city))).sort();
-  const platforms = Array.from(new Set(rawData.map((r) => r.platform))).sort();
+  // Extract unique dropdown options
+  const filterOptions = {
+    platforms:    Array.from(new Set(rawData.map(r => r.platform))).filter(Boolean).sort(),
+    categories:   Array.from(new Set(rawData.map(r => r.category))).filter(Boolean).sort(),
+    subcategories:Array.from(new Set(rawData.map(r => r.subcategory))).filter(Boolean).sort(),
+    brands:       Array.from(new Set(rawData.map(r => r.brand))).filter(Boolean).sort(),
+    products:     Array.from(new Set(rawData.map(r => r.product))).filter(Boolean).sort(),
+  };
 
   // Apply Filters
-  const filteredData = rawData.filter((r) => {
-    if (filters.platform && r.platform !== filters.platform) return false;
-    if (filters.category && r.category !== filters.category) return false;
-    if (filters.city && r.city !== filters.city) return false;
-    if (filters.dateFrom && r.date < filters.dateFrom) return false;
-    if (filters.dateTo && r.date > filters.dateTo) return false;
+  const filteredData = rawData.filter(r => {
+    if (filters.platforms.length    && !filters.platforms.includes(r.platform))       return false;
+    if (filters.categories.length   && !filters.categories.includes(r.category))      return false;
+    if (filters.subcategories.length && !filters.subcategories.includes(r.subcategory)) return false;
+    if (filters.brands.length       && !filters.brands.includes(r.brand))            return false;
+    if (filters.products.length     && !filters.products.includes(r.product))         return false;
+    if (filters.dateFrom            && r.date < filters.dateFrom)                     return false;
+    if (filters.dateTo              && r.date > filters.dateTo)                       return false;
     return true;
   });
 
-  // Calculate KPIs
-  const totalRevenue = filteredData.reduce((s, r) => s + r.revenue, 0);
-  const totalUnits = filteredData.reduce((s, r) => s + r.units, 0);
-  const totalAdSpend = filteredData.reduce((s, r) => s + r.adSpend, 0);
-  const totalAdSales = filteredData.reduce((s, r) => s + r.adSales, 0);
-  const avgTacos = totalRevenue > 0 ? (totalAdSpend / totalRevenue) * 100 : 0;
-  const avgROI = totalAdSpend > 0 ? totalAdSales / totalAdSpend : 0;
+  // ---------- KPIs for current period ----------
+  const totalRevenue  = filteredData.reduce((s, r) => s + r.revenue,  0);
+  const totalUnits    = filteredData.reduce((s, r) => s + r.units,     0);
+  const totalAdSpend  = filteredData.reduce((s, r) => s + r.adSpend,   0);
+  const totalAdSales  = filteredData.reduce((s, r) => s + r.adSales,   0);
+  const avgTacos      = totalRevenue > 0 ? (totalAdSpend / totalRevenue) * 100 : 0;
+  const avgROI        = totalAdSpend > 0 ? totalAdSales / totalAdSpend : 0;
 
-  const kpis = { totalRevenue, totalUnits, totalAdSpend, totalAdSales, avgTacos, avgROI };
+  // ---------- Previous period KPIs (same duration, shifted back) ----------
+  const computePrev = () => {
+    if (!filters.dateFrom || !filters.dateTo) {
+      // No date range set: split all data in half
+      const sorted = [...rawData].sort((a,b) => a.date.localeCompare(b.date));
+      const mid = Math.floor(sorted.length / 2);
+      const prev = sorted.slice(0, mid);
+      return {
+        revenue:  prev.reduce((s,r) => s + r.revenue,  0),
+        units:    prev.reduce((s,r) => s + r.units,     0),
+        adSpend:  prev.reduce((s,r) => s + r.adSpend,   0),
+        adSales:  prev.reduce((s,r) => s + r.adSales,   0),
+      };
+    }
+    // Compute duration and shift window backward
+    const from = new Date(filters.dateFrom);
+    const to   = new Date(filters.dateTo);
+    const diff = to.getTime() - from.getTime();
+    const prevTo   = new Date(from.getTime() - 1).toISOString().slice(0,10);
+    const prevFrom = new Date(from.getTime() - diff - 1).toISOString().slice(0,10);
+    const prev = rawData.filter(r => r.date >= prevFrom && r.date <= prevTo);
+    return {
+      revenue:  prev.reduce((s,r) => s + r.revenue,  0),
+      units:    prev.reduce((s,r) => s + r.units,     0),
+      adSpend:  prev.reduce((s,r) => s + r.adSpend,   0),
+      adSales:  prev.reduce((s,r) => s + r.adSales,   0),
+    };
+  };
+
+  const prevKpis = computePrev();
+
+  const growth = (curr: number, prev: number) =>
+    prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
+
+  const prevDateLabel = filters.dateFrom
+    ? (() => {
+        const from = new Date(filters.dateFrom);
+        const to   = new Date(filters.dateTo);
+        const diff = to.getTime() - from.getTime();
+        const prevTo   = new Date(from.getTime() - 1);
+        const prevFrom = new Date(from.getTime() - diff - 1);
+        const fmt = (d: Date) => `${d.getDate()}/${d.getMonth()+1}`;
+        return `${fmt(prevFrom)}-${fmt(prevTo)}`;
+      })()
+    : 'prev period';
+
+  const kpis = {
+    totalRevenue, totalUnits, totalAdSpend, totalAdSales, avgTacos, avgROI,
+    growth: {
+      revenue:  growth(totalRevenue, prevKpis.revenue),
+      units:    growth(totalUnits,   prevKpis.units),
+      adSpend:  growth(totalAdSpend, prevKpis.adSpend),
+      adSales:  growth(totalAdSales, prevKpis.adSales),
+      tacos:    prevKpis.adSpend > 0
+                  ? growth(avgTacos, prevKpis.revenue > 0 ? (prevKpis.adSpend/prevKpis.revenue)*100 : 0)
+                  : 0,
+      roi:      prevKpis.adSpend > 0
+                  ? growth(avgROI, prevKpis.adSales/prevKpis.adSpend)
+                  : 0,
+    },
+    prevDateLabel,
+  };
 
   return {
-    rawData,
-    filteredData,
-    kpis,
-    filters,
-    setFilters,
-    filterOptions: { categories, cities, platforms },
-    isLoading,
-    isError,
-    error,
+    rawData, filteredData, kpis, filters, setFilters, filterOptions, isLoading, isError, error,
   };
 }
 
-// React Context for easy access deep in the component tree
 const DashboardContext = createContext<ReturnType<typeof useDashboardData> | null>(null);
 
 export const DashboardProvider = ({ children }: { children: React.ReactNode }) => {

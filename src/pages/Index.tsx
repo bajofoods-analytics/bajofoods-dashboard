@@ -1,27 +1,170 @@
-import { useState } from 'react';
-import { useDashboard, DashboardProvider } from '@/hooks/use-dashboard';
+import { useState, useRef, useEffect } from 'react';
+import { useDashboard, DashboardProvider, Filters } from '@/hooks/use-dashboard';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { KPICard } from '@/components/ui/kpi-card';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatMoney, formatNum, formatPct, groupByDate } from '@/lib/data-utils';
-import { 
+import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar,
 } from 'recharts';
-import { Calendar as CalendarIcon, Lightbulb, Target, Settings, ArrowRight } from 'lucide-react';
-import { cn } from "@/lib/utils";
+import { Calendar as CalendarIcon, ChevronDown, X, Lightbulb, Target, Settings, ArrowRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const COLORS = {
-  revenue: '#10b981', // green
-  adSales: '#8b5cf6', // purple
-  adSpend: '#f43f5e', // red
-  blue:    '#6366f1', // units sold
+  revenue: '#10b981',
+  adSales: '#8b5cf6',
+  adSpend: '#f43f5e',
+  blue:    '#6366f1',
 };
 
+/* ─── Multi-Select Dropdown ──────────────────────────────────── */
+interface MultiSelectProps {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+}
+
+function MultiSelect({ label, options, selected, onChange }: MultiSelectProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggle = (val: string) => {
+    onChange(selected.includes(val) ? selected.filter(s => s !== val) : [...selected, val]);
+  };
+
+  const displayText = selected.length === 0
+    ? `All ${label}`
+    : selected.length === 1
+      ? selected[0]
+      : `${selected[0]} +${selected.length - 1}`;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'flex items-center gap-2 h-9 px-3 border rounded-full text-sm font-medium transition-colors whitespace-nowrap',
+          selected.length > 0
+            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+            : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+        )}
+      >
+        <span className="max-w-[130px] truncate">{displayText}</span>
+        {selected.length > 0 && (
+          <span
+            onClick={e => { e.stopPropagation(); onChange([]); }}
+            className="ml-1 text-indigo-400 hover:text-indigo-700"
+          >
+            <X className="w-3 h-3" />
+          </span>
+        )}
+        <ChevronDown className={cn('w-3 h-3 text-slate-400 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 min-w-[200px] max-h-64 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl">
+          {options.length === 0
+            ? <div className="px-4 py-3 text-sm text-slate-400">No options</div>
+            : options.map(opt => (
+                <label
+                  key={opt}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-indigo-600 w-4 h-4 rounded"
+                    checked={selected.includes(opt)}
+                    onChange={() => toggle(opt)}
+                  />
+                  <span className="truncate">{opt}</span>
+                </label>
+              ))
+          }
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Growth Badge ───────────────────────────────────────────── */
+function GrowthBadge({ pct, label }: { pct: number; label: string }) {
+  const up = pct >= 0;
+  return (
+    <div className="flex items-center gap-1 text-[10px] font-semibold">
+      <span className={cn('flex items-center gap-0.5', up ? 'text-emerald-600' : 'text-rose-500')}>
+        {up ? '↑' : '↓'} {Math.abs(pct).toFixed(1)}%
+      </span>
+      <span className="text-slate-400 font-normal">vs {label}</span>
+    </div>
+  );
+}
+
+/* ─── Filter Bar ─────────────────────────────────────────────── */
+function FilterBar() {
+  const { filters, setFilters, filterOptions } = useDashboard();
+
+  const update = (key: keyof Filters) => (vals: string[]) =>
+    setFilters({ ...filters, [key]: vals });
+
+  return (
+    <div className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-100 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2 px-6 py-3">
+        {/* Date range */}
+        <div className="flex items-center gap-1 h-9 px-3 border border-slate-200 bg-slate-50 rounded-full text-sm font-medium text-slate-700">
+          <CalendarIcon className="w-3.5 h-3.5 text-indigo-500" />
+          <input
+            type="date"
+            value={filters.dateFrom}
+            onChange={e => setFilters({ ...filters, dateFrom: e.target.value })}
+            className="bg-transparent border-none outline-none text-xs w-[110px] cursor-pointer"
+          />
+          <span className="text-slate-300">→</span>
+          <input
+            type="date"
+            value={filters.dateTo}
+            onChange={e => setFilters({ ...filters, dateTo: e.target.value })}
+            className="bg-transparent border-none outline-none text-xs w-[110px] cursor-pointer"
+          />
+          {(filters.dateFrom || filters.dateTo) && (
+            <button onClick={() => setFilters({ ...filters, dateFrom: '', dateTo: '' })} className="ml-1 text-slate-400 hover:text-slate-700">
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        <MultiSelect label="Platform"    options={filterOptions.platforms}     selected={filters.platforms}     onChange={update('platforms')} />
+        <MultiSelect label="Category"    options={filterOptions.categories}    selected={filters.categories}    onChange={update('categories')} />
+        <MultiSelect label="Sub-Category" options={filterOptions.subcategories} selected={filters.subcategories} onChange={update('subcategories')} />
+        <MultiSelect label="Brand"       options={filterOptions.brands}        selected={filters.brands}        onChange={update('brands')} />
+        <MultiSelect label="Product"     options={filterOptions.products}      selected={filters.products}      onChange={update('products')} />
+
+        {/* Clear all */}
+        {(filters.platforms.length + filters.categories.length + filters.subcategories.length + filters.brands.length + filters.products.length + (filters.dateFrom ? 1 : 0)) > 0 && (
+          <button
+            onClick={() => setFilters({ platforms:[], categories:[], subcategories:[], brands:[], products:[], dateFrom:'', dateTo:'' })}
+            className="h-9 px-3 text-xs font-medium text-rose-500 hover:text-rose-700 border border-rose-200 bg-rose-50 rounded-full flex items-center gap-1"
+          >
+            <X className="w-3 h-3" /> Clear all
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Overview Dashboard ─────────────────────────────────────── */
 function OverviewDashboard() {
-  const { kpis, filteredData, isLoading, filters, setFilters, filterOptions } = useDashboard();
-  const [timeframe, setTimeframe] = useState<'daily'|'weekly'|'mtd'>('daily');
+  const { kpis, filteredData, isLoading } = useDashboard();
 
   if (isLoading) {
     return (
@@ -31,76 +174,56 @@ function OverviewDashboard() {
     );
   }
 
-  // Prep Chart Data
   const rawTrend = groupByDate(filteredData, ['revenue', 'adSales', 'adSpend', 'units']).slice(-30);
-  
+
   return (
-    <div className="space-y-6">
-      
-      {/* Top Filter Buttons matching Screenshot 2 */}
-      <div className="flex gap-4 items-center">
-        <div className="flex bg-slate-100/50 p-1 rounded-lg w-full max-w-sm border border-slate-200">
-          {(['daily', 'weekly', 'mtd'] as const).map(tf => (
-            <button
-              key={tf}
-              onClick={() => setTimeframe(tf)}
-              className={cn(
-                "flex-1 py-1.5 text-sm font-medium rounded-md capitalize transition-colors",
-                timeframe === tf 
-                  ? "bg-white text-slate-800 shadow-sm ring-1 ring-slate-200" 
-                  : "text-slate-500 hover:text-slate-700"
-              )}
-            >
-              {tf}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex gap-3 mb-6 items-center">
-        <button className="flex items-center gap-2 h-9 px-4 border border-slate-200 bg-slate-50/50 rounded-full text-indigo-500 font-medium text-sm hover:bg-slate-100 transition-colors">
-          <CalendarIcon className="w-4 h-4" />
-          <span>2026-03-19</span>
-        </button>
-
-        <Select value={filters.category} onValueChange={(v) => setFilters({...filters, category: v === 'all' ? '' : v})}>
-          <SelectTrigger className="w-[160px] h-9 text-sm bg-slate-50 border-slate-200 rounded-full font-medium text-slate-700">
-            <SelectValue placeholder="All Categories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {filterOptions.categories.map((c: string) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-
-        <Select value={filters.platform} onValueChange={(v) => setFilters({...filters, platform: v === 'all' ? '' : v})}>
-          <SelectTrigger className="w-[160px] h-9 text-sm bg-slate-50 border-slate-200 rounded-full font-medium text-slate-700">
-            <SelectValue placeholder="All Platforms" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Platforms</SelectItem>
-            {filterOptions.platforms.map((p: string) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* KPI Cards Row */}
+    <div className="space-y-6 p-6">
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KPICard title="Total Revenue" value={formatMoney(kpis.totalRevenue)} trend="up" trendValue="+100.0%" />
-        <KPICard title="Units Sold" value={formatNum(kpis.totalUnits)} trend="up" trendValue="+100.0%" />
-        <KPICard title="Ad Spend" value={formatMoney(kpis.totalAdSpend)} trend="up" trendValue="+100.0%" />
-        <KPICard title="Ad Sales" value={formatMoney(kpis.totalAdSales)} trend="up" trendValue="+100.0%" />
-        <KPICard title="TACOS" value={formatPct(kpis.avgTacos)} trend="down" trendValue="+100.0%" />
-        <KPICard title="Ad ROI" value={kpis.avgROI.toFixed(2)} trend="up" trendValue="+100.0%" />
+        <KPICard
+          title="Total Revenue"
+          value={formatMoney(kpis.totalRevenue)}
+          trend={kpis.growth.revenue >= 0 ? 'up' : 'down'}
+          trendValue={<GrowthBadge pct={kpis.growth.revenue} label={kpis.prevDateLabel} />}
+        />
+        <KPICard
+          title="Units Sold"
+          value={formatNum(kpis.totalUnits)}
+          trend={kpis.growth.units >= 0 ? 'up' : 'down'}
+          trendValue={<GrowthBadge pct={kpis.growth.units} label={kpis.prevDateLabel} />}
+        />
+        <KPICard
+          title="Ad Spend"
+          value={formatMoney(kpis.totalAdSpend)}
+          trend={kpis.growth.adSpend <= 0 ? 'up' : 'down'}
+          trendValue={<GrowthBadge pct={kpis.growth.adSpend} label={kpis.prevDateLabel} />}
+        />
+        <KPICard
+          title="Ad Sales"
+          value={formatMoney(kpis.totalAdSales)}
+          trend={kpis.growth.adSales >= 0 ? 'up' : 'down'}
+          trendValue={<GrowthBadge pct={kpis.growth.adSales} label={kpis.prevDateLabel} />}
+        />
+        <KPICard
+          title="TACOS"
+          value={formatPct(kpis.avgTacos)}
+          trend={kpis.growth.tacos <= 0 ? 'up' : 'down'}
+          trendValue={<GrowthBadge pct={kpis.growth.tacos} label={kpis.prevDateLabel} />}
+        />
+        <KPICard
+          title="Ad ROI"
+          value={kpis.avgROI.toFixed(2) + 'x'}
+          trend={kpis.growth.roi >= 0 ? 'up' : 'down'}
+          trendValue={<GrowthBadge pct={kpis.growth.roi} label={kpis.prevDateLabel} />}
+        />
       </div>
 
       <div className="mb-4 mt-8">
         <h2 className="text-xl font-bold text-slate-800 tracking-tight">Sales Performance Overview</h2>
       </div>
 
-      {/* Targets Setup */}
+      {/* Targets */}
       <div className="grid md:grid-cols-2 gap-4">
-        {/* Revenue Target */}
         <Card className="p-5 border border-slate-200 shadow-sm rounded-xl">
           <div className="flex items-center gap-2 mb-4 text-slate-500">
             <Target className="w-4 h-4 text-indigo-500" />
@@ -115,24 +238,17 @@ function OverviewDashboard() {
                 </span>
               </div>
               <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-slate-200 w-1/4 rounded-full" />
+                <div className="h-full bg-indigo-500 w-1/4 rounded-full" />
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-800">
-                {formatMoney(kpis.totalRevenue)}
-              </div>
+              <div className="mt-2 text-2xl font-bold text-slate-800">{formatMoney(kpis.totalRevenue)}</div>
             </div>
             <div className="ml-6 flex flex-col items-end">
               <span className="text-[10px] text-slate-400 font-medium mb-1">Target (₹)</span>
-              <input 
-                type="text" 
-                placeholder="e.g. 50000" 
-                className="w-28 h-8 text-sm px-3 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              />
+              <input type="text" placeholder="e.g. 50000" className="w-28 h-8 text-sm px-3 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
             </div>
           </div>
         </Card>
 
-        {/* TACOS Target */}
         <Card className="p-5 border border-slate-200 shadow-sm rounded-xl">
           <div className="flex items-center gap-2 mb-4 text-slate-500">
             <Settings className="w-4 h-4 text-amber-500" />
@@ -140,23 +256,15 @@ function OverviewDashboard() {
           </div>
           <div className="flex items-end justify-between">
             <div className="flex-1">
-              <div className="flex justify-between text-xs text-slate-500 mb-2">
-                <span>Current</span>
+              <div className="flex justify-between text-xs text-slate-500 mb-2"><span>Current</span></div>
+              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.min(kpis.avgTacos, 100)}%` }} />
               </div>
-              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden relative">
-                <div className="h-full bg-amber-500 w-[20.3%] rounded-full" />
-              </div>
-              <div className="mt-2 text-2xl font-bold text-slate-800">
-                {formatPct(kpis.avgTacos)}
-              </div>
+              <div className="mt-2 text-2xl font-bold text-slate-800">{formatPct(kpis.avgTacos)}</div>
             </div>
             <div className="ml-6 flex flex-col items-end">
               <span className="text-[10px] text-slate-400 font-medium mb-1">Target (%)</span>
-              <input 
-                type="text" 
-                placeholder="e.g. 15" 
-                className="w-24 h-8 text-sm px-3 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-              />
+              <input type="text" placeholder="e.g. 15" className="w-24 h-8 text-sm px-3 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20" />
             </div>
           </div>
         </Card>
@@ -169,25 +277,13 @@ function OverviewDashboard() {
           <span>Smart Insights</span>
         </div>
         <ul className="space-y-2 text-sm text-slate-700">
-          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">
-            Revenue increased by 3.4% compared to previous period
-          </li>
-          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">
-            NCR is the top city contributing 27% of revenue
-          </li>
-          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">
-            Ultra Low Carb Keto Atta - 1Kg has the highest Ad ROI at 6.8x
-          </li>
-          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">
-            Ready To Eat is the fastest growing category at +31.8%
-          </li>
-          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">
-            Thu has the highest sales by day of week
-          </li>
+          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">Revenue data now live from Google Sheets</li>
+          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">Use multi-select filters above to drill down</li>
+          <li className="flex items-center before:content-['•'] before:mr-2 before:text-slate-400">KPIs show growth % vs previous period automatically</li>
         </ul>
       </div>
 
-      {/* Multi-line Trend Chart */}
+      {/* Trend Chart */}
       <Card className="shadow-sm border-slate-200">
         <CardHeader className="pb-0 pt-5 px-6">
           <CardTitle className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">
@@ -211,11 +307,11 @@ function OverviewDashboard() {
                   <stop offset="95%" stopColor={COLORS.adSpend} stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="#f1f5f9" />
-              <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize: 11, fill: '#64748b'}} tickFormatter={(v) => v.slice(5, 10)} minTickGap={20} />
-              <YAxis tickLine={false} axisLine={false} tickFormatter={(v) => (v/100000).toFixed(0)+'L'} tick={{fontSize: 11, fill: '#64748b'}} />
-              <Tooltip 
-                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize:11,fill:'#64748b'}} tickFormatter={v => v.slice(5,10)} minTickGap={20} />
+              <YAxis tickLine={false} axisLine={false} tickFormatter={v => formatMoney(v)} tick={{fontSize:11,fill:'#64748b'}} />
+              <Tooltip
+                contentStyle={{ borderRadius:'8px', border:'1px solid #e2e8f0', boxShadow:'0 4px 6px -1px rgb(0 0 0/0.1)', fontSize:'12px' }}
                 formatter={(value: number, name: string) => [formatMoney(value), name.toUpperCase()]}
               />
               <Area type="monotone" dataKey="revenue" name="Revenue" stroke={COLORS.revenue} strokeWidth={2} fillOpacity={1} fill="url(#colRev)" />
@@ -233,88 +329,74 @@ function OverviewDashboard() {
 
       {/* Bottom Bar Charts */}
       <div className="grid grid-cols-3 gap-4">
-        {/* Units Sold */}
         <Card className="shadow-sm border-slate-200">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Units Sold</CardTitle>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Units Sold</CardTitle></CardHeader>
           <CardContent className="h-[200px] p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rawTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} tickFormatter={(v) => v.slice(5, 10)} minTickGap={20} />
-                <YAxis tickLine={false} axisLine={false} tickFormatter={(v) => (v/1000).toFixed(0)+'K'} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <Tooltip formatter={(value: number) => [formatNum(value), "Units Sold"]} cursor={{fill: '#f8fafc'}} />
-                <Bar dataKey="units" fill={COLORS.blue} radius={[4, 4, 0, 0]} barSize={20} />
+              <BarChart data={rawTrend} margin={{ top:10, right:10, left:-20, bottom:0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize:10,fill:'#94a3b8'}} tickFormatter={v=>v.slice(5,10)} minTickGap={20} />
+                <YAxis tickLine={false} axisLine={false} tickFormatter={v=>formatNum(v)} tick={{fontSize:10,fill:'#94a3b8'}} />
+                <Tooltip formatter={(value: number) => [formatNum(value), 'Units Sold']} cursor={{fill:'#f8fafc'}} />
+                <Bar dataKey="units" fill={COLORS.blue} radius={[4,4,0,0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Ad Spends */}
         <Card className="shadow-sm border-slate-200">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Ad Spends</CardTitle>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Ad Spends</CardTitle></CardHeader>
           <CardContent className="h-[200px] p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rawTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} tickFormatter={(v) => v.slice(5, 10)} minTickGap={20} />
-                <YAxis tickLine={false} axisLine={false} tickFormatter={(v) => (v/100000).toFixed(0)+'L'} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <Tooltip formatter={(value: number) => [formatMoney(value), "Ad Spends"]} cursor={{fill: '#f8fafc'}} />
-                <Bar dataKey="adSpend" fill={COLORS.adSpend} radius={[4, 4, 0, 0]} barSize={20} />
+              <BarChart data={rawTrend} margin={{ top:10, right:10, left:-20, bottom:0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize:10,fill:'#94a3b8'}} tickFormatter={v=>v.slice(5,10)} minTickGap={20} />
+                <YAxis tickLine={false} axisLine={false} tickFormatter={v=>formatMoney(v)} tick={{fontSize:10,fill:'#94a3b8'}} />
+                <Tooltip formatter={(value: number) => [formatMoney(value), 'Ad Spends']} cursor={{fill:'#f8fafc'}} />
+                <Bar dataKey="adSpend" fill={COLORS.adSpend} radius={[4,4,0,0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Ad Sales */}
         <Card className="shadow-sm border-slate-200">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Ad Sales</CardTitle>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><CardTitle className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Ad Sales</CardTitle></CardHeader>
           <CardContent className="h-[200px] p-2">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={rawTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="#f1f5f9" />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize: 10, fill: '#94a3b8'}} tickFormatter={(v) => v.slice(5, 10)} minTickGap={20} />
-                <YAxis tickLine={false} axisLine={false} tickFormatter={(v) => (v/100000).toFixed(0)+'L'} tick={{fontSize: 10, fill: '#94a3b8'}} />
-                <Tooltip formatter={(value: number) => [formatMoney(value), "Ad Sales"]} cursor={{fill: '#f8fafc'}} />
-                <Bar dataKey="adSales" fill={COLORS.adSales} radius={[4, 4, 0, 0]} barSize={20} />
+              <BarChart data={rawTrend} margin={{ top:10, right:10, left:-20, bottom:0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{fontSize:10,fill:'#94a3b8'}} tickFormatter={v=>v.slice(5,10)} minTickGap={20} />
+                <YAxis tickLine={false} axisLine={false} tickFormatter={v=>formatMoney(v)} tick={{fontSize:10,fill:'#94a3b8'}} />
+                <Tooltip formatter={(value: number) => [formatMoney(value), 'Ad Sales']} cursor={{fill:'#f8fafc'}} />
+                <Bar dataKey="adSales" fill={COLORS.adSales} radius={[4,4,0,0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
-      
     </div>
   );
 }
 
-function CategoryAnalysis() {
-  return (
-    <div className="flex h-[400px] flex-col items-center justify-center rounded-xl bg-white border border-slate-200 shadow-sm">
-      <h3 className="text-xl font-semibold text-slate-800">Category Analysis</h3>
-      <p className="text-slate-500 mt-2">Charts and deep dive tables coming soon.</p>
-    </div>
-  );
-}
-
+/* ─── Main Page ──────────────────────────────────────────────── */
 export default function Index() {
   const [activePage, setActivePage] = useState('overview');
 
   return (
     <DashboardProvider>
       <DashboardLayout activePage={activePage} setActivePage={setActivePage}>
-        {activePage === 'overview' && <OverviewDashboard />}
-        {activePage === 'category' && <CategoryAnalysis />}
-        {activePage !== 'overview' && activePage !== 'category' && (
-          <div className="flex h-[300px] flex-col items-center justify-center rounded-xl bg-slate-100 border border-slate-200">
-            <h3 className="text-lg font-semibold text-slate-600 capitalize">{activePage.replace('-', ' ')} Page</h3>
-            <p className="text-slate-500">Under Construction</p>
+        <div className="min-h-screen bg-slate-50">
+          <FilterBar />
+          <div className="max-w-[1600px] mx-auto">
+            {activePage === 'overview' && <OverviewDashboard />}
+            {activePage !== 'overview' && (
+              <div className="flex h-[300px] flex-col items-center justify-center rounded-xl bg-slate-100 border border-slate-200 m-6">
+                <h3 className="text-lg font-semibold text-slate-600 capitalize">{activePage.replace('-', ' ')} Page</h3>
+                <p className="text-slate-500">Under Construction</p>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </DashboardLayout>
     </DashboardProvider>
   );
