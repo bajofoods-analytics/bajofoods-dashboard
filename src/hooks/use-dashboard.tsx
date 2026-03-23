@@ -1,6 +1,6 @@
 import { useState, createContext, useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { API_URL, SalesRecord, normalizeRow } from '@/lib/data-utils';
+import { SALES_CSV_URL, SPENDS_CSV_URL, SalesRecord, normalizeRow, parseCSV } from '@/lib/data-utils';
 
 interface Filters {
   platform: string;
@@ -21,21 +21,29 @@ const DEFAULT_FILTERS: Filters = {
 export function useDashboardData() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
 
-  // Fetch from SheetDB using React Query
+  // Fetch from Google Sheets using React Query
   const { data: rawData = [], isLoading, isError, error } = useQuery({
     queryKey: ['sheetData'],
     queryFn: async () => {
-      const cached = sessionStorage.getItem('dashboardData');
-      if (cached) {
-        // Return cached instantly, refetch in background handled by react-query
-        // We'll let react-query fetch but seeding it instantly for the user
+      const [salesRes, spendsRes] = await Promise.all([
+        fetch(SALES_CSV_URL),
+        fetch(SPENDS_CSV_URL),
+      ]);
+      if (!salesRes.ok) throw new Error('Failed to fetch sales data from Google Sheets');
+
+      const salesCsv = await salesRes.text();
+      const salesRows = parseCSV(salesCsv);
+
+      // Merge spends data if available
+      let allRows = salesRows;
+      if (spendsRes.ok) {
+        const spendsCsv = await spendsRes.text();
+        const spendsRows = parseCSV(spendsCsv);
+        // Append spends rows (normalizeRow handles missing fields gracefully)
+        allRows = [...salesRows, ...spendsRows];
       }
-      
-      const res = await fetch(API_URL);
-      if (!res.ok) throw new Error('Failed to fetch data');
-      const json = await res.json();
-      sessionStorage.setItem('dashboardData', JSON.stringify(json));
-      return json.map(normalizeRow) as SalesRecord[];
+
+      return allRows.map(normalizeRow) as SalesRecord[];
     },
     staleTime: 5 * 60 * 1000, // 5 minutes fresh
   });

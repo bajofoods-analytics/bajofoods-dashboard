@@ -1,4 +1,44 @@
-export const API_URL = 'https://sheetdb.io/api/v1/1uyo0jm2f3j4s';
+// Google Sheets published CSV export URL (Master_Qcom_Sales_data tab)
+const SHEET_ID = '2PACX-1vTfh4HeBsX_YgPhB-uSiw_H70nyfC4YZrK2kwvO76Vacg7RejixntnYKRkKPsIEq8ff02zq16lXD7XD';
+const SALES_GID  = '637248182';
+const SPENDS_GID = '429145227';
+
+export const SALES_CSV_URL  = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SALES_GID}&single=true&output=csv`;
+export const SPENDS_CSV_URL = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?gid=${SPENDS_GID}&single=true&output=csv`;
+
+/** Parse raw CSV text into an array of row objects keyed by header names */
+export function parseCSV(csvText: string): RawRow[] {
+  const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (lines.length < 2) return [];
+
+  // Basic CSV splitter that handles quoted commas
+  const splitLine = (line: string): string[] => {
+    const cols: string[] = [];
+    let cur = '';
+    let inQuote = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        inQuote = !inQuote;
+      } else if (ch === ',' && !inQuote) {
+        cols.push(cur.trim());
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    cols.push(cur.trim());
+    return cols;
+  };
+
+  const headers = splitLine(lines[0]);
+  return lines.slice(1).map(line => {
+    const values = splitLine(line);
+    const row: RawRow = {};
+    headers.forEach((h, i) => { row[h] = values[i] ?? ''; });
+    return row;
+  });
+}
 
 export interface RawRow {
   [key: string]: string | number;
