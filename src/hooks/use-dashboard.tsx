@@ -65,6 +65,7 @@ export function useDashboardData() {
   const totalAdSales  = filteredData.reduce((s, r) => s + r.adSales,   0);
   const avgTacos      = totalRevenue > 0 ? (totalAdSpend / totalRevenue) * 100 : 0;
   const avgROI        = totalAdSpend > 0 ? totalAdSales / totalAdSpend : 0;
+  const organicPct    = totalRevenue > 0 ? ((totalRevenue - totalAdSales) / totalRevenue) * 100 : 0;
 
   // ---------- Previous period KPIs (same duration, shifted back) ----------
   const computePrev = () => {
@@ -73,11 +74,14 @@ export function useDashboardData() {
       const sorted = [...rawData].sort((a,b) => a.date.localeCompare(b.date));
       const mid = Math.floor(sorted.length / 2);
       const prev = sorted.slice(0, mid);
+      const prevRev = prev.reduce((s,r) => s + r.revenue,  0);
+      const prevAdSales = prev.reduce((s,r) => s + r.adSales,   0);
       return {
-        revenue:  prev.reduce((s,r) => s + r.revenue,  0),
+        revenue:  prevRev,
         units:    prev.reduce((s,r) => s + r.units,     0),
         adSpend:  prev.reduce((s,r) => s + r.adSpend,   0),
-        adSales:  prev.reduce((s,r) => s + r.adSales,   0),
+        adSales:  prevAdSales,
+        organicPct: prevRev > 0 ? ((prevRev - prevAdSales) / prevRev) * 100 : 0,
       };
     }
     // Compute duration and shift window backward
@@ -87,18 +91,24 @@ export function useDashboardData() {
     const prevTo   = new Date(from.getTime() - 1).toISOString().slice(0,10);
     const prevFrom = new Date(from.getTime() - diff - 1).toISOString().slice(0,10);
     const prev = rawData.filter(r => r.date >= prevFrom && r.date <= prevTo);
+    const prevRev = prev.reduce((s,r) => s + r.revenue,  0);
+    const prevAdSales = prev.reduce((s,r) => s + r.adSales,   0);
     return {
-      revenue:  prev.reduce((s,r) => s + r.revenue,  0),
+      revenue:  prevRev,
       units:    prev.reduce((s,r) => s + r.units,     0),
       adSpend:  prev.reduce((s,r) => s + r.adSpend,   0),
-      adSales:  prev.reduce((s,r) => s + r.adSales,   0),
+      adSales:  prevAdSales,
+      organicPct: prevRev > 0 ? ((prevRev - prevAdSales) / prevRev) * 100 : 0,
     };
   };
 
   const prevKpis = computePrev();
 
+  // For percentages, growth is absolute difference
   const growth = (curr: number, prev: number) =>
     prev === 0 ? (curr > 0 ? 100 : 0) : ((curr - prev) / prev) * 100;
+  
+  const absGrowth = (curr: number, prev: number) => curr - prev;
 
   const prevDateLabel = filters.dateFrom
     ? (() => {
@@ -113,18 +123,19 @@ export function useDashboardData() {
     : 'prev period';
 
   const kpis = {
-    totalRevenue, totalUnits, totalAdSpend, totalAdSales, avgTacos, avgROI,
+    totalRevenue, totalUnits, totalAdSpend, totalAdSales, avgTacos, avgROI, organicPct,
     growth: {
       revenue:  growth(totalRevenue, prevKpis.revenue),
       units:    growth(totalUnits,   prevKpis.units),
       adSpend:  growth(totalAdSpend, prevKpis.adSpend),
       adSales:  growth(totalAdSales, prevKpis.adSales),
       tacos:    prevKpis.adSpend > 0
-                  ? growth(avgTacos, prevKpis.revenue > 0 ? (prevKpis.adSpend/prevKpis.revenue)*100 : 0)
+                  ? absGrowth(avgTacos, prevKpis.revenue > 0 ? (prevKpis.adSpend/prevKpis.revenue)*100 : 0) // point change
                   : 0,
       roi:      prevKpis.adSpend > 0
                   ? growth(avgROI, prevKpis.adSales/prevKpis.adSpend)
                   : 0,
+      organicPct: absGrowth(organicPct, prevKpis.organicPct), // point change
     },
     prevDateLabel,
   };
