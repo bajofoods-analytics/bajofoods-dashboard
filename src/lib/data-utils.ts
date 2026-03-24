@@ -67,23 +67,23 @@ export function normalizeRow(r: RawRow): SalesRecord {
     return '';
   };
 
-  const rev   = num(find('Revenue', 'revenue', 'Sales', 'Ordered Product Sales'));
-  const spend = num(find('Ad Spend', 'AdSpend', 'ad_spend', 'Spends', 'Total Spends'));
+  const rev   = num(find('Revenue', 'Sales', 'Ordered Product Sales'));
+  const spend = num(find('Ad Spends', 'Ad Spend', 'Total Ads Spends', 'Spends'));
 
   return {
-    date:        find('Date', 'date', 'Order Date', 'Week') || new Date().toISOString().slice(0,10),
-    platform:    find('Platform', 'platform', 'Channel') || 'Unknown',
-    category:    find('Category', 'category', 'Product Category') || 'Unknown',
-    subcategory: find('Sub Category', 'Subcategory', 'subcategory', 'Sub-Category', 'SubCategory') || 'Unknown',
-    city:        find('City', 'city', 'Region', 'Location') || 'Unknown',
-    brand:       find('Brand', 'brand', 'Brand Name') || 'Unknown',
-    product:     find('Product', 'product', 'Product Name', 'ASIN', 'SKU', 'Item') || 'Unknown',
-    units:       num(find('Units', 'units', 'Units Sold', 'Qty', 'Quantity')),
+    date:        find('Date', 'Order Date', 'Week') || new Date().toISOString().slice(0,10),
+    platform:    find('Platform', 'Channel') || 'Unknown',
+    category:    find('Category', 'Product Category') || 'Unknown',
+    subcategory: find('Sub Category', 'Subcategory', 'Sub-Category') || 'Unknown',
+    city:        find('City', 'Region', 'Location') || 'Unknown',
+    brand:       find('Brand', 'Brand Name') || 'Unknown',
+    product:     find('Product Name', 'Product', 'ASIN', 'SKU', 'Item') || 'Unknown',
+    units:       num(find('Qty', 'Units', 'Units Sold', 'Quantity')),
     revenue:     rev,
     adSpend:     spend,
-    adSales:     num(find('Ad Sales', 'AdSales', 'ad_sales', 'Attributed Sales')),
+    adSales:     num(find('Ad Sales', 'Total Ads Sales', 'Attributed Sales')),
     tacos:       num(find('TACOS', 'tacos', 'TACoS')) || (rev > 0 ? (spend / rev) * 100 : 0),
-    adROI:       num(find('Ad ROI', 'ROI', 'roi', 'ROAS')) || (spend > 0 ? num(find('Ad Sales', 'AdSales')) / spend : 0),
+    adROI:       num(find('Ad ROI', 'ROI', 'roi')) || (spend > 0 ? num(find('Ad Sales', 'Total Ads Sales')) / spend : 0),
   };
 }
 

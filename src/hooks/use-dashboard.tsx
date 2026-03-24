@@ -25,7 +25,7 @@ const DEFAULT_FILTERS: Filters = {
 export function useDashboardData() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
 
-  // Fetch from Google Sheets CSV (Sales tab only)
+  // Fetch from Google Sheets CSV (Sales tab ONLY as requested)
   const { data: rawData = [], isLoading, isError, error } = useQuery({
     queryKey: ['sheetData'],
     queryFn: async () => {
