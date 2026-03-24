@@ -56,8 +56,31 @@ export interface SalesRecord {
 
 const num = (v: any) => parseFloat(String(v).replace(/[₹,%\s]/g,'')) || 0;
 
+function parseDateString(dStr: string): string {
+  if (!dStr) return new Date().toISOString().slice(0,10);
+  const d = new Date(dStr);
+  if (!isNaN(d.getTime())) {
+    // Return standard YYYY-MM-DD in local time
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  // Fallback for DD/MM/YYYY or DD-MM-YYYY
+  const parts = dStr.split(/[-/]/);
+  if (parts.length === 3) {
+    const d2 = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+    if (!isNaN(d2.getTime())) {
+      const yyyy = d2.getFullYear();
+      const mm = String(d2.getMonth() + 1).padStart(2, '0');
+      const dd = String(d2.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  return new Date().toISOString().slice(0,10);
+}
+
 export function normalizeRow(r: RawRow): SalesRecord {
-  // Case-insensitive key lookup
   const keys = Object.keys(r);
   const find = (...candidates: string[]) => {
     for (const c of candidates) {
@@ -71,7 +94,7 @@ export function normalizeRow(r: RawRow): SalesRecord {
   const spend = num(find('Ad Spends', 'Ad Spend', 'Total Ads Spends', 'Spends'));
 
   return {
-    date:        find('Date', 'Order Date', 'Week') || new Date().toISOString().slice(0,10),
+    date:        parseDateString(find('Date', 'Order Date', 'Week')),
     platform:    find('Platform', 'Channel') || 'Unknown',
     category:    find('Category', 'Product Category') || 'Unknown',
     subcategory: find('Sub Category', 'Subcategory', 'Sub-Category') || 'Unknown',
