@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { SalesRecord, formatMoney } from '@/lib/data-utils';
-import { Lightbulb, TrendingUp, TrendingDown, MapPin, Target } from 'lucide-react';
+import { Lightbulb, TrendingUp, MapPin, Target } from 'lucide-react';
 
 interface Props {
   data: SalesRecord[];

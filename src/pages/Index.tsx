@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { useDashboard, DashboardProvider, Filters, TabType } from '@/hooks/use-dashboard';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { formatMoney, formatNum, formatPct, groupByDate } from '@/lib/data-utils';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Calendar as CalendarIcon, ChevronDown, X, CloudDownload, Target, Settings, ArrowRight } from 'lucide-react';
+import { formatMoney, formatNum, groupByDate } from '@/lib/data-utils';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { Calendar as CalendarIcon, ChevronDown, X, CloudDownload, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MetricBarChart } from '@/components/dashboard/MetricBarChart';
 import { SmartInsights } from '@/components/dashboard/SmartInsights';
@@ -11,7 +11,7 @@ import { TopProducts } from '@/components/dashboard/TopProducts';
 import { PlatformPerformanceTable, CategoryPlatformTable } from '@/components/dashboard/PivotTables';
 
 // Custom metric colors
-const COLORS = { adSpends: '#ef4444', adSales: '#06b6d4', revenue: '#10b981' };
+const COLORS = { adSpend: '#ef4444', adSales: '#06b6d4', revenue: '#10b981' };
 
 /* ─── Multi-Select Dropdown ──────────────────────────────────── */
 function MultiSelect({ label, options, selected, onChange, icon }: { label: string; options: string[]; selected: string[]; onChange: (v: string[]) => void; icon?: boolean }) {
